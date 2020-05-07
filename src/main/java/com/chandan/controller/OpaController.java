@@ -6,7 +6,6 @@ import java.io.FileWriter;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.InputStreamReader;
-import java.util.Arrays;
 import java.util.List;
 import java.util.UUID;
 import java.util.concurrent.Executors;
@@ -42,37 +41,33 @@ public class OpaController {
 
 	Logger log = LoggerFactory.getLogger(this.getClass());
 
-	public final String FILE_LOC = "src/main/resources/regos";
 
 	@PostMapping(value = "/api/opa/rego/validate", consumes = MediaType.TEXT_PLAIN_VALUE)
 	public ResponseEntity<OpaResponse> validate(@RequestBody String regoText) throws IOException, InterruptedException {
 		String rego = StringEscapeUtils.unescapeJson(regoText);
 		String id = UUID.randomUUID().toString();
-		String fileName = createRegoFile(FILE_LOC, rego, id);
+		String fileName = createRegoFile(rego, id);
 
 		ProcessBuilder builder = new ProcessBuilder();
 		builder.command("opa", "test", fileName);
 		Process process = builder.start();
-		StreamGobbler streamGobbler = new StreamGobbler(process.getInputStream(), System.out::println);
+		StreamGobbler streamGobbler = new StreamGobbler(process.getInputStream(), log::debug);
 		Executors.newSingleThreadExecutor().submit(streamGobbler);
 		int exitCode = process.waitFor();
+		log.debug("\nExited with error code : " + exitCode);
 		List<String> results;
 		if (exitCode == 0) {
 			results = readOutput(process.getInputStream());
 		} else {
 			results = readOutput(process.getErrorStream());
 		}
-		results.forEach(System.out::println);
-		System.out.println("\nExited with error code : " + exitCode);
+		results.forEach(log::debug);
 		
 		File fileToDelete = FileUtils.getFile(fileName);
 		boolean success = FileUtils.deleteQuietly(fileToDelete);
-		System.out.println(success);
-
-		ProcessBuilder pb = new ProcessBuilder(getDirectoryListingCommand());
-		Process pa = pb.start();
-		List<String> r = readOutput(pa.getInputStream());
-		r.forEach(System.out::println);
+		if(success) {			
+			log.debug(fileName + " File Deleted");
+		}
 		if (results.isEmpty()) {
 			return ResponseEntity.ok(new OpaResponse("Valid Rego"));
 		} else {
@@ -87,7 +82,7 @@ public class OpaController {
 		}
 	}
 
-	private String createRegoFile(String fileLoc, String rego, String id) {
+	private String createRegoFile(String rego, String id) {
 		String filename = id + ".rego";
 		try {
 			FileWriter myWriter = new FileWriter(filename);
@@ -97,14 +92,5 @@ public class OpaController {
 			log.error(e.getMessage());
 		}
 		return filename;
-	}
-
-	private List<String> getDirectoryListingCommand() {
-		return isWindows() ? Arrays.asList("cmd.exe", "/c", "dir") : Arrays.asList("/bin/sh", "-c", "ls");
-	}
-
-	private static boolean isWindows() {
-		String osName = System.getProperty("os.name");
-		return osName.contains("Windows");
 	}
 }
